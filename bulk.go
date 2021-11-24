@@ -161,7 +161,7 @@ READ_DOCS:
 
 	CLEAN_BUFFER:
 		c.TargetESAPI.Bulk(&mainBuf)
-		log.Trace("clean buffer, and execute bulk insert")
+		log.Debug("clean buffer, and execute bulk insert")
 		pb.Add(bulkItemSize)
 		bulkItemSize = 0
 		if c.Config.SleepSecondsAfterEachBulk >0{
@@ -174,7 +174,7 @@ WORKER_DONE:
 		bulkItemSize++
 	}
 	c.TargetESAPI.Bulk(&mainBuf)
-	log.Trace("bulk insert")
+	log.Info("bulk insert and close worker")
 	pb.Add(bulkItemSize)
 	bulkItemSize = 0
 	wg.Done()

@@ -28,7 +28,7 @@ import (
 	"github.com/paulbellamy/ratecounter"
 	"time"
 	"io/ioutil"
-	"infini.sh/framework/core/util"
+	"./util"
 )
 
 func WriteToLogstash(c *Config)  {

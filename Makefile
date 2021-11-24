@@ -4,7 +4,7 @@ OLDGOPATH=${GOPATH}
 NEWGOPATH:=${CWD}:${OLDGOPATH}
 export GOPATH=$(NEWGOPATH)
 PATH := $(PATH):$(GOPATH)/bin
-GO111MODULE=off
+export GO111MODULE=off
 
 build: clean config
 	@go version
@@ -78,6 +78,9 @@ config:
 	go get github.com/cihub/seelog
 	go get github.com/parnurzeal/gorequest
 	go get github.com/mattn/go-isatty
+	go get github.com/cheggaaa/pb
+	go get github.com/paulbellamy/ratecounter
+	go get github.com/valyala/fasthttp
 
 dist: cross-build package
 

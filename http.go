@@ -25,7 +25,7 @@ import (
 	"fmt"
 	log "github.com/cihub/seelog"
 	"github.com/parnurzeal/gorequest"
-	"infini.sh/framework/lib/fasthttp"
+	"github.com/valyala/fasthttp"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -54,7 +54,7 @@ func Get(url string,auth *Auth,proxy string) (*http.Response, string, []error) {
 		request.SetBasicAuth(auth.User,auth.Pass)
 	}
 
-	request.Header["Content-Type"]= "application/json"
+	request.Header.Add("Content-Type", "application/json")
 
 	if(len(proxy)>0){
 		request.Proxy(proxy)
@@ -78,7 +78,7 @@ func Post(url string,auth *Auth, body string,proxy string)(*http.Response, strin
 		request.SetBasicAuth(auth.User,auth.Pass)
 	}
 
-	request.Header["Content-Type"]="application/json"
+	request.Header.Add("Content-Type", "application/json")
 	
 	if(len(proxy)>0){
 		request.Proxy(proxy)
@@ -289,7 +289,6 @@ func DecodeJson(jsonStream string, o interface{})(error) {
 	decoder := json.NewDecoder(strings.NewReader(jsonStream))
 	// UseNumber causes the Decoder to unmarshal a number into an interface{} as a Number instead of as a float64.
 	decoder.UseNumber()
-	decoder.
 
 	if err := decoder.Decode(o); err != nil {
 		fmt.Println("error:", err)

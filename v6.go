@@ -26,7 +26,7 @@ import (
 	"io/ioutil"
 	"strings"
 	"regexp"
-	"infini.sh/framework/core/util"
+	"./util"
 )
 
 type ESAPIV6 struct {
@@ -68,6 +68,7 @@ func (s *ESAPIV6) NewScroll(indexNames string, scrollTime string, docBufferCount
 		}
 	}
 
+	log.Infof("new scroll request: %s, %s ",url,string(jsonBody))
 	body, err := DoRequest(s.Compress,"POST",url, s.Auth,jsonBody,s.HttpProxy)
 	if err != nil {
 		log.Error(err)
@@ -77,9 +78,11 @@ func (s *ESAPIV6) NewScroll(indexNames string, scrollTime string, docBufferCount
 	scroll = &Scroll{}
 	err = DecodeJson(body, scroll)
 	if err != nil {
+		log.Trace(body)
 		log.Error(err)
 		return nil, err
 	}
+	log.Trace("new scroll result", scroll)
 
 	return scroll, err
 }
@@ -88,6 +91,7 @@ func (s *ESAPIV6) NextScroll(scrollTime string, scrollId string) (interface{}, e
 	id := bytes.NewBufferString(scrollId)
 
 	url := fmt.Sprintf("%s/_search/scroll?scroll=%s&scroll_id=%s", s.Host, scrollTime, id)
+	log.Debug("next scroll request: ", url)
 	body,err:=DoRequest(s.Compress,"GET",url,s.Auth,nil,s.HttpProxy)
 
 	// decode elasticsearch scroll response

@@ -218,8 +218,13 @@ func cleanSettings(settings map[string]interface{}) {
 
 func (s *ESAPIV0) UpdateIndexSettings(name string, settings map[string]interface{}) error {
 
-        log.Debug("update index: ", name, settings)
         cleanSettings(settings)
+
+	if len(settings["settings"].(map[string]interface{})) == 0 || len(settings["settings"].(map[string]interface{})["index"].(map[string]interface{})) == 0 {
+                return nil
+        }
+
+	log.Info("update index with settings,", name, settings)
         url := fmt.Sprintf("%s/%s/_settings", s.Host, name)
 
         if _, ok := settings["settings"].(map[string]interface{})["index"]; ok {

@@ -86,6 +86,7 @@ func (s *Scroll) Next(c *Migrator, bar *pb.ProgressBar) (done bool) {
 	}
 
 	docs:=scroll.(ScrollAPI).GetDocs()
+	log.Debugf("next scroll doc count is %d",len(docs))
 	if docs == nil || len(docs) <= 0 {
 		log.Debug("scroll result is empty")
 		return true
@@ -96,7 +97,7 @@ func (s *Scroll) Next(c *Migrator, bar *pb.ProgressBar) (done bool) {
 	//update scrollId
 	s.ScrollId=scroll.(ScrollAPI).GetScrollId()
 
-	return
+	return false
 }
 
 // Stream from source es instance. "done" is an indicator that the stream is

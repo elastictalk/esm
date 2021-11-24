@@ -17,6 +17,7 @@ import (
 	_ "runtime/pprof"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -84,6 +85,8 @@ func main() {
 		log.Info("source data will repeat send to target: ", c.RepeatOutputTimes, " times, the document id will be regenerated.")
 	}
 
+	//get source index settings to prepare for later scroll by each index
+	var sourceIndexSettings *Indexes
 	if c.RepeatOutputTimes > 0 {
 
 		for i := 0; i < c.RepeatOutputTimes; i++ {
@@ -100,6 +103,8 @@ func main() {
 			var outputBar *pb.ProgressBar = pb.New(1).Prefix("Output ")
 
 			var fetchBar = pb.New(1).Prefix("Scroll")
+
+
 
 			wg := sync.WaitGroup{}
 
@@ -155,52 +160,74 @@ func main() {
 					c.ScrollSliceSize = 1
 				}
 
+				sourceIndexSettings, err = migrator.SourceESAPI.GetIndexSettings(c.SourceIndexNames)
+				log.Debug("source index settings:", sourceIndexSettings)
+				if err != nil {
+					log.Error(err)
+					return
+				}
+
 				totalSize := 0
-				finishedSlice := 0
-				for slice := 0; slice < c.ScrollSliceSize; slice++ {
-					scroll, err := migrator.SourceESAPI.NewScroll(c.SourceIndexNames, c.ScrollTime, c.DocBufferCount, c.Query, slice, c.ScrollSliceSize, c.Fields)
-					if err != nil {
-						log.Error(err)
-						return
-					}
+				var finishedSlice int32 = 0
+				var totalSliceCount int32 = int32(c.ScrollSliceSize * len(*sourceIndexSettings))
 
-					temp := scroll.(ScrollAPI)
-
-					totalSize += temp.GetHitsTotal()
-
-					if scroll != nil && temp.GetDocs() != nil {
-
-						if temp.GetHitsTotal() == 0 {
-							log.Error("can't find documents from source.")
+				// Iterate index list waiting for migration
+				indexCount := 0
+				for migrationIndexName, _ := range *sourceIndexSettings {
+					indexCount++
+					log.Infof("start fetch data for index %d:%s",indexCount, migrationIndexName)
+					for slice := 0; slice < c.ScrollSliceSize; slice++ {
+						scroll, err := migrator.SourceESAPI.NewScroll(migrationIndexName, c.ScrollTime, c.DocBufferCount, c.Query, slice, c.ScrollSliceSize, c.Fields)
+						if err != nil {
+							log.Error(err)
 							return
 						}
 
-						go func() {
-							wg.Add(1)
-							//process input
-							// start scroll
-							temp.ProcessScrollResult(&migrator, fetchBar)
+						temp := scroll.(ScrollAPI)
 
-							// loop scrolling until done
-							for temp.Next(&migrator, fetchBar) == false {
+						totalSize += temp.GetHitsTotal()
+
+						if scroll != nil && temp.GetDocs() != nil {
+
+							if temp.GetHitsTotal() == 0 {
+								log.Error("can't find documents from source . ", migrationIndexName)
+								atomic.AddInt32(&finishedSlice, 1)
+								log.Infof("No Data -> Current slice count / Total slice count: %d / %d", finishedSlice, totalSliceCount)
+								continue
 							}
 
-							if showBar {
-								fetchBar.Finish()
-							}
+							go func() {
+								wg.Add(1)
+								//process input
+								// start scroll
+								temp.ProcessScrollResult(&migrator, fetchBar)
 
-							// finished, close doc chan and wait for goroutines to be done
-							wg.Done()
-							finishedSlice++
+								// loop scrolling until done
+								for temp.Next(&migrator, fetchBar) == false {
+								}
 
-							//clean up final results
-							if finishedSlice == c.ScrollSliceSize {
-								log.Debug("closing doc chan")
-								close(migrator.DocChan)
-							}
-						}()
+
+								// finished, close doc chan and wait for goroutines to be done
+								wg.Done()
+								atomic.AddInt32(&finishedSlice, 1)
+								log.Infof("Current slice count / Total slice count: %d / %d", finishedSlice, totalSliceCount)
+
+								//clean up final results
+								if finishedSlice == totalSliceCount {
+									if showBar {
+										fetchBar.Finish()
+									}
+									log.Info("closing doc chan")
+									close(migrator.DocChan)
+								}
+							}()
+						} else {
+							log.Warn("scroll is nil ", migrationIndexName)
+						}
 					}
+					log.Infof("stop fetch data for index %s",migrationIndexName)
 				}
+
 
 				if totalSize > 0 {
 					fetchBar.Total = int64(totalSize)
@@ -344,14 +371,6 @@ func main() {
 						if c.CopyIndexSettings || c.ShardsCount > 0 {
 							log.Info("start settings/mappings migration..")
 
-							//get source index settings
-							var sourceIndexSettings *Indexes
-							sourceIndexSettings, err := migrator.SourceESAPI.GetIndexSettings(c.SourceIndexNames)
-							log.Debug("source index settings:", sourceIndexSettings)
-							if err != nil {
-								log.Error(err)
-								return
-							}
 
 							//get target index settings
 							targetIndexSettings, err := migrator.TargetESAPI.GetIndexSettings(c.TargetIndexName)
@@ -360,6 +379,8 @@ func main() {
 								log.Debug(err)
 							}
 							log.Debug("target IndexSettings", targetIndexSettings)
+
+
 
 							//if there is only one index and we specify the dest indexname
 							if c.SourceIndexNames != c.TargetIndexName && (len(c.TargetIndexName) > 0) && indexCount == 1 {
@@ -406,19 +427,17 @@ func main() {
 								sourceIndexRefreshSettings[name] = ((*sourceIndexSettings)[name].(map[string]interface{}))["settings"].(map[string]interface{})["index"].(map[string]interface{})["refresh_interval"]
 
 								//set refresh_interval
-								tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["refresh_interval"] = -1
-								tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["number_of_replicas"] = 0
+								//tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["refresh_interval"] = -1
+								//tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["number_of_replicas"] = 0
 
-								//clean up settings
-								delete(tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{}), "number_of_shards")
+								// delete replicas setting
+								delete(tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{}), "number_of_replicas")
+
 
 								//copy indexsettings and mappings
 								if targetIndexExist {
-									log.Debug("update index with settings,", name, tempIndexSettings)
-									//override shard settings
-									if c.ShardsCount > 0 {
-										tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["number_of_shards"] = c.ShardsCount
-									}
+									//clean up settings
+									delete(tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{}), "number_of_shards")
 									err := migrator.TargetESAPI.UpdateIndexSettings(name, tempIndexSettings)
 									if err != nil {
 										log.Error(err)
@@ -479,7 +498,7 @@ func main() {
 			//start es bulk thread
 			if len(c.TargetEs) > 0 {
 				log.Debug("start es bulk workers")
-				outputBar.Prefix("Bulk")
+				//outputBar.Prefix("Bulk")
 				var docCount int
 				wg.Add(c.Workers)
 				for i := 0; i < c.Workers; i++ {
@@ -501,6 +520,7 @@ func main() {
 				pool.Stop()
 
 			}
+			migrator.TargetESAPI.Refresh(c.SourceIndexNames)
 		}
 
 	}
@@ -512,9 +532,12 @@ func (c *Migrator) recoveryIndexSettings(sourceIndexRefreshSettings map[string]i
 	//update replica and refresh_interval
 	for name, interval := range sourceIndexRefreshSettings {
 		tempIndexSettings := getEmptyIndexSettings()
-		tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["refresh_interval"] = interval
-		//tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["number_of_replicas"] = 1
-		c.TargetESAPI.UpdateIndexSettings(name, tempIndexSettings)
+		if interval != nil {
+			tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["refresh_interval"] = interval
+			//tempIndexSettings["settings"].(map[string]interface{})["index"].(map[string]interface{})["number_of_replicas"] = 1
+			c.TargetESAPI.UpdateIndexSettings(name, tempIndexSettings)
+		}
+
 		if c.Config.Refresh {
 			c.TargetESAPI.Refresh(name)
 		}

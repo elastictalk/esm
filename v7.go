@@ -204,26 +204,38 @@ func (s *ESAPIV7) GetIndexMappings(copyAllIndexes bool, indexNames string) (stri
 
 func (s *ESAPIV7) UpdateIndexMapping(indexName string,settings map[string]interface{}) error {
 
-	log.Debug("start update mapping: ", indexName, settings)
+	log.Debug("start update mapping: ", indexName,", ",settings)
 
-	delete(settings,"dynamic_templates")
+	include_type_name := ""
+	// add include_type_name if properties is not under first level
+	if _,ok := settings["properties"]; !ok {
+		include_type_name = "?include_type_name"
+	}
 
-	//for name, mapping := range settings {
+	url := fmt.Sprintf("%s/%s/_mapping%s", s.Host, indexName, include_type_name)
 
-		log.Debug("start update mapping: ", indexName,", ",settings)
+	//body := bytes.Buffer{}
+	//enc := json.NewEncoder(&body)
+	//enc.Encode(settings)
 
-		url := fmt.Sprintf("%s/%s/_mapping", s.Host, indexName)
+	//res, err := Request("POST", url, s.Auth, &body,s.HttpProxy)
 
-		body := bytes.Buffer{}
-		enc := json.NewEncoder(&body)
-		enc.Encode(settings)
-		res, err := Request("POST", url, s.Auth, &body,s.HttpProxy)
-		if(err!=nil){
-			log.Error(url)
-			log.Error(body.String())
-			log.Error(err,res)
-			panic(err)
-		}
-	//}
+	body, err := json.Marshal(settings)
+
+	if err != nil {
+		log.Error(err)
+		panic(err)
+	}
+
+	log.Debug("json encode result: ", string(body))
+
+	res, err := DoRequest(s.Compress,"POST",url, s.Auth,body,s.HttpProxy)
+	if(err!=nil){
+		log.Error(url)
+		log.Error(string(body))
+		log.Error(err,res)
+		panic(err)
+	}
+
 	return nil
 }
